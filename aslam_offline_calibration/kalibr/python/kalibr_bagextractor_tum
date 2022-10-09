@@ -1,0 +1,165 @@
+#!/usr/bin/env python
+"""
+generate TUM format dataset with txt files from bag file
+"""
+
+print("importing libraries")
+
+import kalibr_common as kc
+
+import cv2
+import csv
+import os
+import sys
+import argparse
+import sm
+
+try:
+    import cv
+
+    png_flag = cv.CV_IMWRITE_PNG_COMPRESSION
+except ImportError:
+    png_flag = cv2.IMWRITE_PNG_COMPRESSION
+
+# setup the argument list
+parser = argparse.ArgumentParser(description='Extract a ROS bag containing a image and imu topics.')
+parser.add_argument('--bag', metavar='bag', help='ROS bag file')
+parser.add_argument('--image-topics', metavar='image_topics', nargs='+', help='Image topics %(default)s')
+parser.add_argument('--imu-topics', metavar='imu_topics', nargs='+', help='Imu topics %(default)s')
+parser.add_argument('--output-folder', metavar='output_folder', nargs='?', default="output",
+                    help='Output folder %(default)s')
+
+# print help if no argument is specified
+if len(sys.argv) < 2:
+    parser.print_help()
+    sys.exit(0)
+
+# parse the args
+parsed = parser.parse_args()
+
+if parsed.image_topics is None and parsed.imu_topics is None:
+    print("ERROR: Need at least one camera or IMU topic.")
+    sys.exit(-1)
+
+# create output folder
+try:
+    os.makedirs(parsed.output_folder)
+except:
+    pass
+
+# prepare progess bar
+iProgress = sm.Progress2(1)
+
+# extract images
+if parsed.image_topics is not None:
+    dics = []
+    for cidx, topic in enumerate(parsed.image_topics):
+        dataset = kc.BagImageDatasetReader(parsed.bag, topic)
+        os.makedirs("{0}/cam{1}".format(parsed.output_folder, cidx))
+
+        numImages = dataset.numImages()
+        # progress bar
+        print("Extracting {0} images from topic {1}".format(numImages, dataset.topic))
+        iProgress.reset(numImages)
+        iProgress.sample()
+
+        of = open("{0}/cam{1}.txt".format(parsed.output_folder, cidx), 'w')
+        lines = []
+
+        for timestamp, image in dataset:
+            params = list()
+            params.append(png_flag)
+            params.append(0)  # 0: loss-less
+            ts = "{0}.{1:09d}".format(timestamp.secs, timestamp.nsecs)
+            filename = "{0}.png".format(ts)
+            cv2.imwrite( "{0}/cam{1}/{2}".format(parsed.output_folder, cidx, filename), image, params )
+
+            of.writelines("{0} cam{1}/{2}\n".format(ts, cidx, filename))
+            lines.append((float(ts), "cam{0}/{1}".format(cidx, filename)))
+
+            iProgress.sample()
+
+        dics.append(dict(lines))
+        of.close()
+        print("\r      done.                                                          ")
+        print("")
+
+    print("Associating files with TUM association alg.")
+    offset = 0.0
+    max_difference = 0.02
+    matches = []
+    if len(dics) == 2:
+        print("the num of dics: 2")
+        keys0 = dics[0].keys()
+        keys1 = dics[1].keys()
+        potential_matches = [(abs(a - (b + offset)), a, b)
+                             for a in keys0
+                             for b in keys1
+                             if abs(a - (b + offset)) < max_difference]
+        potential_matches.sort()
+        for diff, a, b in potential_matches:
+            if a in keys0 and b in keys1:
+                keys0.remove(a)
+                keys1.remove(b)
+                matches.append((a, b))
+    elif len(dics) == 3:
+        print("the num of dics: 3")
+        keys0 = dics[0].keys()
+        keys1 = dics[1].keys()
+        keys2 = dics[2].keys()
+        potential_matches = [(abs(a - (b + offset)), a, b, c)
+                             for a in keys0
+                             for b in keys1
+                             for c in keys2
+                             if abs(a - (b + offset)) < max_difference and abs(a - (c + offset)) < max_difference]
+        potential_matches.sort()
+        for diff, a, b, c in potential_matches:
+            if a in keys0 and b in keys1 and c in keys2:
+                keys0.remove(a)
+                keys1.remove(b)
+                keys2.remove(c)
+                matches.append((a, b, c))
+    else:
+        print("ERROR: the num of dics is neither 2 nor 3!!!")
+
+    matches.sort()
+
+    print("Writing {0} matches to associateN.txt".format(len(matches)))
+    iProgress.reset(len(matches))
+    iProgress.sample()
+
+    with open("{0}/associate{1}.txt".format(parsed.output_folder, len(dics)), 'w') as f:
+        for match in matches:
+            str = ""
+            for i in range(len(match)):
+                ts = match[i]
+                str += "%f %s " % (ts, (dics[i][ts]))
+            str.rstrip()
+            str += "\n"
+            f.writelines(str)
+            iProgress.sample()
+    print("\r      done.                                                          ")
+print("")
+
+# extract imu data
+if parsed.imu_topics is not None:
+    for iidx, topic in enumerate(parsed.imu_topics):
+        dataset = kc.BagImuDatasetReader(parsed.bag, topic)
+        filename = "imu{0}.csv".format(iidx)
+
+        # progress bar
+        numMsg = dataset.numMessages()
+        print("Extracting {0} IMU messages from topic {1}".format(numMsg, dataset.topic))
+        iProgress.reset(numMsg)
+        iProgress.sample()
+
+        with open("{0}/{1}".format(parsed.output_folder, filename), 'w') as imufile:
+            spamwriter = csv.writer(imufile, delimiter=',')
+            spamwriter.writerow(["timestamp", "omega_x", "omega_y", "omega_z", "alpha_x", "alpha_y", "alpha_z"])
+
+            for timestamp, omega, alpha in dataset:
+                timestamp_int = int(timestamp.toSec() * 1e9)
+                spamwriter.writerow([timestamp_int, omega[0], omega[1], omega[2], alpha[0], alpha[1], alpha[2]])
+                iProgress.sample()
+            print("\r      done.                                                          ")
+            print("")
