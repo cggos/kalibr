@@ -523,6 +523,31 @@ def plotAllReprojectionErrors(cself, cam_id, fno=1, noShow=False, clearFigure=Tr
     cb.set_label('image index')
     if not noShow:
         pl.show()
+    
+    # [CGGOS 20221012]
+    dists = []
+    for view_id, corners in enumerate(all_corners):
+        if corners is not None:
+            for corner in corners:
+                if corner[0] is not None and corner[1] is not None:
+                    cx = int(corner[0] - resolution[0] / 2)
+                    cy = int(corner[1] - resolution[1] / 2)
+                    dist_arr = np.array([cx, cy])
+                    dist = np.linalg.norm(dist_arr)
+                    dists.append(dist)
+    err_norms = []
+    for view_id, rerrs in enumerate(rerrs_xy):
+        if rerrs is not None:
+            for err in rerrs:
+                if err[0] is not None and err[1] is not None:
+                    err_norm = np.linalg.norm(err)
+                    err_norms.append(err_norm)
+    pl.figure()
+    pl.scatter(dists, err_norms, marker = 'o', color = 'r')
+    pl.xlabel("distance from image center")
+    pl.ylabel("error L2-norm (pix)")
+    if not noShow:
+        pl.show()
 
 def plotCornersAndReprojection(gridobs, reprojs, fno=1, cornerlist=None, clearFigure=True, plotImage=True, color=None, title=""):
     #create figure

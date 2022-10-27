@@ -1,0 +1,11 @@
+{
+  "python.analysis.extraPaths": [
+    "./aslam_cv/aslam_cameras_april/python",
+    "./aslam_cv/aslam_cv_backend_python/python",
+    "./aslam_optimizer/aslam_backend_python/python",
+    "./aslam_optimizer/aslam_backend_python/python",
+    "./aslam_incremental_calibration/incremental_calibration_python/src",
+    "./Schweizer-Messer/sm_python/python",
+    "./Schweizer-Messer/numpy_eigen/src"
+  ]
+}
